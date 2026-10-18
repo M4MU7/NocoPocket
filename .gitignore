@@ -1,0 +1,38 @@
+# Zależności
+node_modules/
+
+# Expo
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# Build Androida (reszta w android/.gitignore)
+android/.kotlin/
+*.apk
+*.aab
+# Pliki do wrzucenia jako GitHub Release (nie do repo)
+release/
+
+# Klucze podpisu i certyfikaty – nigdy nie commitować
+*.jks
+*.keystore
+!android/app/debug.keystore
+*.p8
+*.p12
+*.key
+*.pem
+*.mobileprovision
+
+# Zmienne środowiskowe i lokalne pliki
+.env
+.env*.local
+*.log
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+.DS_Store
+*.orig.*
+
+# Lokalna kopia zapasowa sprzed migracji na API v3
+_backup_api_v2/

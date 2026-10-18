@@ -1,0 +1,14 @@
+{
+  "expo": {
+    "name": "NocoPocket",
+    "slug": "nocopocket",
+    "icon": "./assets/icon.png",
+    "android": {
+      "package": "com.nocopocket.app",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#FFFFFF"
+      }
+    }
+  }
+}
