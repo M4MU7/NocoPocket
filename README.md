@@ -89,25 +89,6 @@ cd android
 
 Gotowy plik: `android/app/build/outputs/apk/release/app-release.apk`.
 
-### Podpisywanie
-
-Bez dodatkowej konfiguracji build release podpisuje się publicznym kluczem debug z szablonu React Native – wystarczy do testów. Do własnych wydań wygeneruj klucz **poza repozytorium**:
-
-```bash
-keytool -genkeypair -storetype PKCS12 -keystore ~/.android/nocopocket-release.jks -alias nocopocket -keyalg RSA -keysize 4096 -validity 10000
-```
-
-i dopisz jego dane do `~/.gradle/gradle.properties` (plik w katalogu domowym, nie w projekcie):
-
-```properties
-NOCOPOCKET_RELEASE_STORE_FILE=/sciezka/do/nocopocket-release.jks
-NOCOPOCKET_RELEASE_STORE_PASSWORD=...
-NOCOPOCKET_RELEASE_KEY_ALIAS=nocopocket
-NOCOPOCKET_RELEASE_KEY_PASSWORD=...
-```
-
-Gdy te wpisy istnieją, `assembleRelease` automatycznie użyje Twojego klucza. Przy każdym wydaniu zwiększ `versionCode` i `versionName` w `android/app/build.gradle`.
-
 ## Struktura projektu
 
 ```
