@@ -4,10 +4,16 @@ import {
   ActivityIndicator, StyleSheet, SafeAreaView, Alert, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { useSettings } from '../context/SettingsContext';
-import { createRecord, updateRecord, fetchRecord } from '../services/nocodbApi';
 import {
-  isEditable, toFormValue, fromFormValue, formatValue, nowFormValue, getContrastColor,
+  createRecord, updateRecord, fetchRecord, fetchLinkedRecords, saveLinkChanges,
+} from '../services/nocodbApi';
+import {
+  isEditable, isLinkField, toFormValue, fromFormValue, formatValue, nowFormValue, getContrastColor,
 } from '../utils/fieldTypes';
+import { LinkFieldInput } from './LinkFields';
+
+const idsOf = (records) => (records ?? []).map((r) => String(r.id));
+const sameIds = (a, b) => idsOf(a).sort().join('|') === idsOf(b).sort().join('|');
 
 const KEYBOARDS = {
   Number: 'number-pad', Year: 'number-pad',
@@ -123,7 +129,8 @@ function FieldInput({ field, value, onChange, theme }) {
 
 /**
  * Formularz dodawania (mode = 'create') lub edycji (mode = 'edit') rekordu.
- * Przy edycji wysyłane są tylko zmienione pola.
+ * Przy edycji wysyłane są tylko zmienione pola. Powiązania z innymi tabelami
+ * zapisywane są osobno (endpoint /links) – tylko dodane i usunięte.
  */
 export default function RecordFormModal({
   visible, mode, record, fields, baseId, tableId, onClose, onSaved, theme,
@@ -131,7 +138,9 @@ export default function RecordFormModal({
   const { settings } = useSettings();
   const isEdit = mode === 'edit';
   const editable = useMemo(() => fields.filter(isEditable), [fields]);
-  const readOnly = useMemo(() => fields.filter((f) => !isEditable(f)), [fields]);
+  const linkFields = useMemo(() => fields.filter(isLinkField), [fields]);
+  const formFields = useMemo(() => fields.filter((f) => isEditable(f) || isLinkField(f)), [fields]);
+  const readOnly = useMemo(() => fields.filter((f) => !isEditable(f) && !isLinkField(f)), [fields]);
 
   const initial = useMemo(() => {
     const values = {};
@@ -142,10 +151,32 @@ export default function RecordFormModal({
   const [form, setForm] = useState(initial);
   const [errors, setErrors] = useState({});
   const [saving, setSaving] = useState(false);
+  // Powiązania: { [fieldId]: [{ id, fields }] } – stan początkowy (z serwera) i bieżący
+  const [linksInitial, setLinksInitial] = useState({});
+  const [links, setLinks] = useState({});
+  const [linksLoading, setLinksLoading] = useState(false);
 
   useEffect(() => {
     if (visible) { setForm(initial); setErrors({}); }
   }, [visible, initial]);
+
+  useEffect(() => {
+    if (!visible || !linkFields.length) return undefined;
+    const empty = Object.fromEntries(linkFields.map((f) => [f.id, []]));
+    setLinksInitial(empty); setLinks(empty);
+    if (!isEdit || !record) return undefined;
+    let cancelled = false;
+    setLinksLoading(true);
+    Promise.all(linkFields.map((f) => fetchLinkedRecords(settings, baseId, tableId, f.id, record.id)))
+      .then((lists) => {
+        if (cancelled) return;
+        const loaded = Object.fromEntries(linkFields.map((f, i) => [f.id, lists[i]]));
+        setLinksInitial(loaded); setLinks(loaded);
+      })
+      .catch((e) => { if (!cancelled) Alert.alert('Nie udało się wczytać powiązań', e.message); })
+      .finally(() => { if (!cancelled) setLinksLoading(false); });
+    return () => { cancelled = true; };
+  }, [visible, isEdit, record, linkFields, settings, baseId, tableId]);
 
   const setValue = (title) => (val) => {
     setForm((f) => ({ ...f, [title]: val }));
@@ -162,25 +193,36 @@ export default function RecordFormModal({
     });
     if (Object.keys(errs).length) { setErrors(errs); return; }
 
-    if (!Object.keys(payload).length) {
+    const changedLinks = linkFields.filter((f) => !sameIds(linksInitial[f.id], links[f.id]));
+    if (!Object.keys(payload).length && !changedLinks.length) {
       if (isEdit) onClose();
       else Alert.alert('Pusty rekord', 'Wypełnij przynajmniej jedno pole.');
       return;
     }
 
     setSaving(true);
+    let recordId = isEdit ? record.id : undefined;
     try {
       if (isEdit) {
-        await updateRecord(settings, baseId, tableId, record.id, payload);
-        const fresh = await fetchRecord(settings, baseId, tableId, record.id);
-        onSaved(fresh?.id !== undefined ? fresh : { ...record, fields: { ...record.fields, ...payload } }, 'edit');
+        if (Object.keys(payload).length) await updateRecord(settings, baseId, tableId, record.id, payload);
       } else {
         const created = await createRecord(settings, baseId, tableId, payload);
-        const fresh = created?.id !== undefined ? await fetchRecord(settings, baseId, tableId, created.id) : null;
-        onSaved(fresh?.id !== undefined ? fresh : created, 'create');
+        recordId = created?.id;
       }
+      for (const f of changedLinks) {
+        await saveLinkChanges(settings, baseId, tableId, f.id, recordId, idsOf(linksInitial[f.id]), idsOf(links[f.id]));
+      }
+      const fresh = recordId !== undefined ? await fetchRecord(settings, baseId, tableId, recordId) : null;
+      onSaved(fresh?.id !== undefined ? fresh : { ...record, id: recordId, fields: { ...record?.fields, ...payload } }, isEdit ? 'edit' : 'create');
     } catch (e) {
-      Alert.alert('Nie udało się zapisać', e.message);
+      // Rekord mógł się zapisać, a nie udały się dopiero powiązania – odśwież listę mimo błędu
+      if (!isEdit && recordId !== undefined) {
+        Alert.alert('Rekord zapisany częściowo', `Rekord został utworzony, ale nie udało się zapisać powiązań:
+${e.message}`);
+        onSaved({ id: recordId, fields: payload }, 'create');
+      } else {
+        Alert.alert('Nie udało się zapisać', e.message);
+      }
     } finally {
       setSaving(false);
     }
@@ -209,10 +251,21 @@ export default function RecordFormModal({
 
         <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
           <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-            {editable.map((f) => (
+            {formFields.map((f) => (
               <View key={f.id} style={styles.field}>
                 <Text style={[styles.label, { color: theme.textMuted }]}>{f.title}</Text>
-                <FieldInput field={f} value={form[f.title]} onChange={setValue(f.title)} theme={theme} />
+                {isLinkField(f)
+                  ? (
+                    <LinkFieldInput
+                      field={f}
+                      value={links[f.id] ?? []}
+                      onChange={(recs) => setLinks((l) => ({ ...l, [f.id]: recs }))}
+                      baseId={baseId}
+                      loading={linksLoading}
+                      theme={theme}
+                    />
+                  )
+                  : <FieldInput field={f} value={form[f.title]} onChange={setValue(f.title)} theme={theme} />}
                 {f.description ? <Text style={[styles.help, { color: theme.textMuted }]}>{f.description}</Text> : null}
                 {errors[f.title] ? <Text style={[styles.error, { color: theme.error }]}>{f.title}: {errors[f.title]}</Text> : null}
               </View>

@@ -94,6 +94,16 @@ export async function fetchTableMeta(cfg, baseId, tableId) {
   return apiFetch(cfg, `/meta/bases/${baseId}/tables/${tableId}`);
 }
 
+// Schematy tabel powiązanych – pobierane raz na sesję (wybór rekordów, podgląd powiązań)
+const metaCache = new Map();
+export function fetchTableMetaCached(cfg, baseId, tableId) {
+  const key = `${cfg.baseUrl}|${baseId}|${tableId}`;
+  if (!metaCache.has(key)) {
+    metaCache.set(key, fetchTableMeta(cfg, baseId, tableId).catch((e) => { metaCache.delete(key); throw e; }));
+  }
+  return metaCache.get(key);
+}
+
 export function getStatusOptions(fields, statusFieldName) {
   const statusCol = (fields ?? []).find(
     (f) => f.title === statusFieldName && f.type === 'SingleSelect'
@@ -105,14 +115,23 @@ export function getStatusOptions(fields, statusFieldName) {
 
 // ───────────────────────── DANE ─────────────────────────
 
+/** Filtr "zawiera" w składni v3 – cudzysłowy chronią przecinki i nawiasy */
+export function containsWhere(fieldTitle, text) {
+  const clean = (v) => String(v).replace(/"/g, '');
+  return `("${clean(fieldTitle)}",like,"%${clean(text)}%")`;
+}
+
 /**
  * Jedna strona rekordów.
  * sort: { field: 'Tytuł', direction: 'asc' | 'desc' } (opcjonalnie)
+ * where: filtr v3, np. containsWhere('Nazwa', 'abc') (opcjonalnie)
+ * fields: lista nazw pól do zwrócenia (opcjonalnie, domyślnie wszystkie)
+ * Pola Links zwracane są jako lista powiązanych rekordów (linksAsLtar), a nie liczba.
  * Zwraca { records: [{ id, fields }], hasMore }
  */
-export async function fetchRecords(cfg, baseId, tableId, { page = 1, sort } = {}) {
+export async function fetchRecords(cfg, baseId, tableId, { page = 1, sort, where, fields } = {}) {
   const pageSize = Number(cfg.pageSize) || 50;
-  const query = buildQuery({ page, pageSize, sort: sort ? [sort] : undefined });
+  const query = buildQuery({ page, pageSize, sort: sort ? [sort] : undefined, where, fields, linksAsLtar: 'true' });
   const data = await apiFetch(cfg, `/data/${baseId}/${tableId}/records${query}`);
   return { records: data?.records ?? [], hasMore: !!data?.next };
 }
@@ -131,7 +150,7 @@ export async function fetchAllRecords(cfg, baseId, tableId, opts = {}) {
 }
 
 export async function fetchRecord(cfg, baseId, tableId, recordId) {
-  return apiFetch(cfg, `/data/${baseId}/${tableId}/records/${encodeURIComponent(recordId)}`);
+  return apiFetch(cfg, `/data/${baseId}/${tableId}/records/${encodeURIComponent(recordId)}?linksAsLtar=true`);
 }
 
 /** fields: { 'Nazwa pola': wartość, ... } → zwraca utworzony rekord { id, fields } */
@@ -161,4 +180,51 @@ export async function deleteRecord(cfg, baseId, tableId, recordId) {
   const result = data?.records?.[0];
   if (result && result.deleted === false) throw new Error('NocoDB nie usunął rekordu.');
   return result ?? null;
+}
+
+// ───────────────────────── POWIĄZANIA (Links / LinkToAnotherRecord) ─────────────────────────
+
+const linksPath = (baseId, tableId, linkFieldId, recordId) =>
+  `/data/${baseId}/${tableId}/links/${linkFieldId}/${encodeURIComponent(recordId)}`;
+
+/** Wszystkie rekordy powiązane przez pole linkFieldId: [{ id, fields: { <pole wyświetlane>: wartość } }] */
+export async function fetchLinkedRecords(cfg, baseId, tableId, linkFieldId, recordId) {
+  let all = [];
+  let page = 1;
+  let hasMore = true;
+  while (hasMore) {
+    const data = await apiFetch(cfg, `${linksPath(baseId, tableId, linkFieldId, recordId)}${buildQuery({ page, pageSize: 100 })}`);
+    const records = data?.records ?? [];
+    all = all.concat(records);
+    hasMore = !!data?.next && records.length > 0;
+    page++;
+  }
+  return all;
+}
+
+// API v3 wymaga id jako tekstu: [{ "id": "12" }]
+const linkBody = (ids) => JSON.stringify(ids.map((id) => ({ id: String(id) })));
+
+export async function linkRecords(cfg, baseId, tableId, linkFieldId, recordId, ids) {
+  if (!ids.length) return;
+  await apiFetch(cfg, linksPath(baseId, tableId, linkFieldId, recordId), { method: 'POST', body: linkBody(ids) });
+}
+
+export async function unlinkRecords(cfg, baseId, tableId, linkFieldId, recordId, ids) {
+  if (!ids.length) return;
+  await apiFetch(cfg, linksPath(baseId, tableId, linkFieldId, recordId), { method: 'DELETE', body: linkBody(ids) });
+}
+
+/**
+ * Doprowadza powiązania pola do stanu afterIds: najpierw odłącza usunięte
+ * (ważne przy relacjach jeden-do-jednego / wiele-do-jednego), potem dołącza nowe.
+ */
+export async function saveLinkChanges(cfg, baseId, tableId, linkFieldId, recordId, beforeIds, afterIds) {
+  const before = new Set(beforeIds.map(String));
+  const after = new Set(afterIds.map(String));
+  const toRemove = [...before].filter((id) => !after.has(id));
+  const toAdd = [...after].filter((id) => !before.has(id));
+  await unlinkRecords(cfg, baseId, tableId, linkFieldId, recordId, toRemove);
+  await linkRecords(cfg, baseId, tableId, linkFieldId, recordId, toAdd);
+  return { added: toAdd.length, removed: toRemove.length };
 }

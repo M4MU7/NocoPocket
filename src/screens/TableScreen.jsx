@@ -209,6 +209,7 @@ export default function TableScreen({ route, navigation }) {
         record={selected}
         fields={fields}
         titleField={titleField}
+        baseId={baseId}
         visible={!!selected}
         onClose={() => setSelected(null)}
         onEdit={openEdit}

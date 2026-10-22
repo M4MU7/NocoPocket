@@ -21,6 +21,19 @@ const UNSORTABLE_TYPES = new Set([
 export const isEditable = (field) => !READ_ONLY_TYPES.has(field.type);
 export const isSortable = (field) => !UNSORTABLE_TYPES.has(field.type);
 
+// Powiązania z innymi tabelami – edytowane osobnym komponentem przez endpoint /links
+export const isLinkField = (field) =>
+  (field.type === 'Links' || field.type === 'LinkToAnotherRecord') && !!field.options?.related_table_id;
+
+/** Relacja wiele-do-jednego / jeden-do-jednego – rekord może mieć tylko jedno powiązanie */
+export const isSingleLink = (field) => ['mo', 'oo'].includes(field.options?.relation_type);
+
+/** Wartość pola powiązania z API → lista [{ id, fields }] (liczba = brak szczegółów) */
+export function linkedRecordsOf(value) {
+  if (value === null || value === undefined || typeof value !== 'object') return [];
+  return (Array.isArray(value) ? value : [value]).filter((v) => v && typeof v === 'object' && v.id !== undefined);
+}
+
 /** Pola do wyświetlenia – pole wyświetlane (display field) zawsze pierwsze */
 export function visibleFields(table) {
   const fields = (table?.fields ?? []).filter((f) => !HIDDEN_TYPES.has(f.type));
@@ -68,7 +81,7 @@ function formatDuration(seconds) {
   return `${Math.floor(s / 3600)}:${pad(Math.floor((s % 3600) / 60))}:${pad(Math.floor(s % 60))}`;
 }
 
-function linkedLabel(item) {
+export function linkedLabel(item) {
   if (item === null || item === undefined) return '';
   if (typeof item !== 'object') return String(item);
   const first = item.fields ? Object.values(item.fields)[0] : undefined;

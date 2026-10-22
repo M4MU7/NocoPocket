@@ -22,17 +22,19 @@
 - **Szczegóły rekordu** – wszystkie pola w czytelnej postaci (kolorowe etykiety wyboru, gwiazdki oceny, daty w czasie lokalnym).
 - **Dodawanie i edycja** – formularz dopasowany do typu pola, z walidacją przed wysłaniem. Przy edycji wysyłane są tylko zmienione pola.
 - **Usuwanie** – z potwierdzeniem przed usunięciem.
+- **Powiązania między tabelami** – pola Links i LinkToAnotherRecord pokazują powiązane rekordy (dotknięcie otwiera rekord z drugiej tabeli). W formularzu możesz dodawać i odłączać powiązania, wybierając rekordy z wyszukiwarką.
 - **Jasny i ciemny motyw.**
 
 ### Obsługiwane typy pól
 
 | Edytowalne | Tylko do odczytu |
 | --- | --- |
-| SingleLineText, LongText, Email, URL, PhoneNumber | Links, LinkToAnotherRecord, Lookup, Rollup, Formula |
+| SingleLineText, LongText, Email, URL, PhoneNumber | Lookup, Rollup, Formula |
 | Number, Decimal, Currency, Percent, Year | Attachment, User, CreatedBy, LastModifiedBy |
 | Rating, Checkbox | CreatedTime, LastModifiedTime, AutoNumber |
 | SingleSelect, MultiSelect | Barcode, QrCode, Duration, Geometry |
 | Date, DateTime, Time, JSON | |
+| Links, LinkToAnotherRecord | |
 
 ## Wymagania
 
@@ -72,7 +74,7 @@ Przy pierwszym uruchomieniu otwórz **⚙️ Ustawienia** i uzupełnij:
 
 ## Ograniczenia
 
-- Pola złożone i wyliczane (powiązania, załączniki, użytkownicy, formuły itp.) są tylko do odczytu.
+- Pola wyliczane i złożone (Lookup, Rollup, formuły, załączniki, użytkownicy itp.) są tylko do odczytu.
 - Daty wpisuje się tekstowo (`RRRR-MM-DD`, `RRRR-MM-DD GG:MM`, `GG:MM`) – z przyciskami „Dziś” / „Teraz”.
 - Interfejs jest dostępny tylko po polsku.
 - Projekt jest skonfigurowany tylko dla Androida.
