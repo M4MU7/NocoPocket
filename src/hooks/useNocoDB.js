@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  fetchBases, fetchTables, fetchTableMeta, fetchRecords, fetchAllRecords, getStatusOptions,
+  fetchBases, fetchTables, fetchTableMeta, fetchRecords, fetchAllRecords, fetchCount, getStatusOptions,
 } from '../services/nocodbApi';
 import { useSettings } from '../context/SettingsContext';
 
@@ -75,8 +75,9 @@ export function useTableMeta(baseId, tableId) {
  *  • all = false → stronicowanie (loadMore doczytuje kolejne strony)
  *  • all = true  → wszystkie rekordy naraz (dla kanbana)
  *  • sort = { field, direction } | null
+ *  • where = filtr v3 (np. wyszukiwanie) | undefined
  */
-export function useRecords(baseId, tableId, { sort = null, all = false, enabled = true } = {}) {
+export function useRecords(baseId, tableId, { sort = null, where, all = false, enabled = true } = {}) {
   const { settings, loaded } = useSettings();
   const [records, setRecords] = useState([]);
   const [page, setPage] = useState(1);
@@ -93,11 +94,11 @@ export function useRecords(baseId, tableId, { sort = null, all = false, enabled 
     setLoading(true); setError(null);
     try {
       if (all) {
-        const list = await fetchAllRecords(settings, baseId, tableId, { sort });
+        const list = await fetchAllRecords(settings, baseId, tableId, { sort, where });
         if (req !== requestId.current) return;
         setRecords(list); setHasMore(false); setPage(1);
       } else {
-        const res = await fetchRecords(settings, baseId, tableId, { page: 1, sort });
+        const res = await fetchRecords(settings, baseId, tableId, { page: 1, sort, where });
         if (req !== requestId.current) return;
         setRecords(res.records); setHasMore(res.hasMore); setPage(1);
       }
@@ -106,7 +107,7 @@ export function useRecords(baseId, tableId, { sort = null, all = false, enabled 
     } finally {
       if (req === requestId.current) setLoading(false);
     }
-  }, [baseId, tableId, settings, all, sort?.field, sort?.direction]);
+  }, [baseId, tableId, settings, all, sort?.field, sort?.direction, where]);
 
   const loadMore = useCallback(async () => {
     if (all || !hasMore || loading || loadingMoreRef.current) return;
@@ -114,7 +115,7 @@ export function useRecords(baseId, tableId, { sort = null, all = false, enabled 
     loadingMoreRef.current = true;
     setLoadingMore(true);
     try {
-      const res = await fetchRecords(settings, baseId, tableId, { page: page + 1, sort });
+      const res = await fetchRecords(settings, baseId, tableId, { page: page + 1, sort, where });
       if (req !== requestId.current) return;
       setRecords((prev) => prev.concat(res.records));
       setHasMore(res.hasMore);
@@ -125,7 +126,7 @@ export function useRecords(baseId, tableId, { sort = null, all = false, enabled 
       loadingMoreRef.current = false;
       setLoadingMore(false);
     }
-  }, [all, hasMore, loading, settings, baseId, tableId, page, sort?.field, sort?.direction]);
+  }, [all, hasMore, loading, settings, baseId, tableId, page, sort?.field, sort?.direction, where]);
 
   useEffect(() => {
     if (loaded && enabled) load();
@@ -142,4 +143,21 @@ export function useRecords(baseId, tableId, { sort = null, all = false, enabled 
   }, []);
 
   return { records, hasMore, loading, loadingMore, error, reload: load, loadMore, replaceLocal, removeLocal };
+}
+
+/** Liczba rekordów tabeli (null, dopóki nie wiadomo); refreshKey wymusza ponowne pobranie */
+export function useCount(baseId, tableId, { where, refreshKey = 0, enabled = true } = {}) {
+  const { settings, loaded } = useSettings();
+  const [count, setCount] = useState(null);
+
+  useEffect(() => {
+    if (!loaded || !enabled || !baseId || !tableId) return undefined;
+    let cancelled = false;
+    fetchCount(settings, baseId, tableId, where)
+      .then((n) => { if (!cancelled) setCount(n); })
+      .catch(() => { if (!cancelled) setCount(null); });
+    return () => { cancelled = true; };
+  }, [loaded, enabled, settings, baseId, tableId, where, refreshKey]);
+
+  return count;
 }

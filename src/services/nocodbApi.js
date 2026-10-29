@@ -149,6 +149,12 @@ export async function fetchAllRecords(cfg, baseId, tableId, opts = {}) {
   return all;
 }
 
+/** Liczba rekordów tabeli (opcjonalnie z filtrem where) */
+export async function fetchCount(cfg, baseId, tableId, where) {
+  const data = await apiFetch(cfg, `/data/${baseId}/${tableId}/count${buildQuery({ where })}`);
+  return typeof data?.count === 'number' ? data.count : null;
+}
+
 export async function fetchRecord(cfg, baseId, tableId, recordId) {
   return apiFetch(cfg, `/data/${baseId}/${tableId}/records/${encodeURIComponent(recordId)}?linksAsLtar=true`);
 }
